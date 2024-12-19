@@ -40,8 +40,20 @@ async function run() {
       .collection("job-Applications");
 
     app.get("/jobs", async (req, res) => {
-      const cursor = jobsCollection.find();
+      const email = req.query.email;
+      let query = {};
+      if (email) {
+        query = { hrEmail: email };
+      }
+
+      const cursor = jobsCollection.find(query);
       const result = await cursor.toArray();
+      res.send(result);
+    });
+    // Post
+    app.post("/jobs", async (req, res) => {
+      const newJob = req.body;
+      const result = await jobsCollection.insertOne(newJob);
       res.send(result);
     });
 
