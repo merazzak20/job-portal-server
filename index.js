@@ -1,13 +1,44 @@
 const express = require("express");
 const cors = require("cors");
+const jwt = require("jsonwebtoken");
+const cookieParser = require("cookie-parser");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 require("dotenv").config();
 const app = express();
 const port = process.env.PORT || 5000;
 
 // middle
-app.use(cors());
+app.use(
+  cors({
+    origin: ["http://localhost:5173"],
+    credentials: true,
+  })
+);
 app.use(express.json());
+app.use(cookieParser());
+
+// custom middle wire
+const logger = (req, res, next) => {
+  console.log("inside the logger");
+  next();
+};
+
+const verify = (req, res, next) => {
+  // console.log("inside the verify", req.cookies);
+  const token = req?.cookies?.token;
+  if (!token) {
+    return res.status(401).send({ message: "Unauthorized Access" });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET, (error, decoded) => {
+    if (error) {
+      return res.status(401).send({ message: "Unauthorized Access" });
+    }
+
+    req.user = decoded;
+    next();
+  });
+};
 
 // job_hunter
 // tOGfOeD7k4KQLR5v
@@ -39,6 +70,18 @@ async function run() {
       .db("JobPortal")
       .collection("job-Applications");
 
+    // Auth Related Api
+    app.post("/jwt", async (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.JWT_SECRET, { expiresIn: "1h" });
+      res
+        .cookie("token", token, {
+          httpOnly: true,
+          secure: false,
+        })
+        .send({ success: true });
+    });
+
     app.get("/jobs", async (req, res) => {
       const email = req.query.email;
       let query = {};
@@ -57,7 +100,8 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/jobs/:id", async (req, res) => {
+    app.get("/jobs/:id", logger, async (req, res) => {
+      console.log("Now inside the function");
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await jobsCollection.findOne(query);
@@ -66,9 +110,13 @@ async function run() {
 
     // Application API
 
-    app.get("/job-applications", async (req, res) => {
+    app.get("/job-applications", verify, async (req, res) => {
       const applicant_email = req.query.applicant_email;
       const query = { email: applicant_email };
+      console.log(req.cookies);
+      if (req.user.email !== req.query.applicant_email) {
+        return res.status(403).send({ message: "Forbidden Access" });
+      }
       const result = await jobApplicationCollection.find(query).toArray();
       for (const applications of result) {
         const query1 = { _id: new ObjectId(applications.job_id) };
@@ -82,7 +130,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/job-applications", async (req, res) => {
+    app.post("/job-applications", verify, async (req, res) => {
       const application = req.body;
       const result = await jobApplicationCollection.insertOne(application);
       res.send(result);
